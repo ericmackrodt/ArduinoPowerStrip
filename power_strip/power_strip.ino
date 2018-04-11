@@ -1,7 +1,9 @@
 #include <SPI.h>
 #include <ArduinoJson.h>
 #include <SoftwareSerial.h>
+#include <SerialMessenger.h>
 SoftwareSerial ESPSerial(2, 3); // RX, TX
+SerialMessenger messenger(&ESPSerial);
 
 bool relays[8] = { false, false, false, false, false, false, false, false }; 
 
@@ -11,6 +13,21 @@ int LATCH = 4;
 int BUTTONS = 7;
 
 byte input, output, check=1;
+
+void onStatus(String message) {
+  messenger.send("status", getStatus());
+}
+
+void onTurnOn(String message) {
+  enable_relay(message);
+  messenger.send("on", getOn(message));
+ 
+}
+
+void onTurnOff(String message) {
+  disable_relay(message);
+  messenger.send("off", getOff(message));
+}
 
 void setup() {
   pinMode(CLOCK, OUTPUT);//clock
@@ -28,40 +45,15 @@ void setup() {
   digitalWrite(LATCH, LOW);
   Serial.begin(115200);
   ESPSerial.begin(115200);
+
+  messenger.subscribe("status", &onStatus);
+  messenger.subscribe("on", &onTurnOn);
+  messenger.subscribe("off", &onTurnOff);
+  
   Serial.println("Started!");
 }//setup
 
 int count = 0;
-
-String getCommand(String data) {
-  int start = data.indexOf('#');
-  int comma = data.indexOf(',');
-  int colon = data.indexOf(';');
-
-    if(start > -1 && comma > -1 && comma > start) {
-      return data.substring(start + 1, comma);
-    } else if (start > -1 && colon > -1 && colon > start) {
-      return data.substring(start + 1, colon);
-    } else {
-      return data;
-    }
-}
-
-String getParameter(String data) {
-  int start = data.indexOf(',');
-  int end = data.indexOf(';');
-
-    if(start > -1 && end > start) {
-      return data.substring(start + 1, end);
-    }
-    else {
-      return data;
-    }
-}
-
-bool isCommand(String data, String cmd) {
-  return getCommand(data) == cmd;
-}
 
 String getStatus() {
   StaticJsonBuffer<200> jsonBuffer;
@@ -93,19 +85,7 @@ String getOff(String relay) {
 }
 
 void loop(){
-  if (ESPSerial.available()) {
-    // reads input from esp8266 and writes to serial console
-    String data = ESPSerial.readString();
-    if (isCommand(data, "status") == true) {
-      ESPSerial.println("#status;" + getStatus() + "$"); 
-    } else if (isCommand(data, "on") == true) {
-      enable_relay(getParameter(data));
-      ESPSerial.println("#on;" + getOn(getParameter(data)) + "$");
-    } else if (isCommand(data, "off") == true) {
-      disable_relay(getParameter(data));
-      ESPSerial.println("#off;" + getOff(getParameter(data)) + "$");
-    }
-  }
+  messenger.handle();
   
   if (digitalRead(BUTTONS)==HIGH) {
     delay(50);
